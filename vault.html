@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DBMS Vault</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background:#0b1220; color:#e2e8f0; margin:0; padding:24px; }
+  h1 { color:#38bdf8; margin:0 0 6px; }
+  h2 { color:#38bdf8; font-size:16px; margin:24px 0 8px; }
+  p, li { color:#cbd5e1; line-height:1.55; }
+  code { background:#1e293b; padding:2px 6px; border-radius:4px; color:#fbbf24; font-size:12.5px; }
+  .card { background:#111a2e; border:1px solid #1f2a44; border-radius:12px; padding:18px; margin-bottom:18px; }
+  #drop { border:2px dashed #334155; border-radius:12px; padding:34px; text-align:center; color:#94a3b8;
+          cursor:pointer; transition:.2s; background:#0e1730; }
+  #drop.hover { border-color:#38bdf8; background:#132244; color:#e2e8f0; }
+  #drop strong { color:#38bdf8; }
+  textarea { width:100%; min-height:120px; background:#0e1730; color:#e2e8f0; border:1px solid #1f2a44;
+             border-radius:8px; padding:10px; font-family:ui-monospace,monospace; font-size:12.5px; box-sizing:border-box; }
+  button { background:#38bdf8; color:#0b1220; border:0; padding:10px 18px; border-radius:8px;
+           font-weight:700; cursor:pointer; font-size:14px; margin-right:8px; }
+  button:hover { background:#0ea5e9; }
+  button.danger { background:#ef4444; color:#fff; }
+  button.ghost { background:#1e293b; color:#e2e8f0; border:1px solid #334155; }
+  #status { margin-top:10px; padding:9px 12px; border-radius:8px; font-weight:600; font-size:13px; display:none; }
+  #status.ok { display:block; background:#064e3b; color:#6ee7b7; }
+  #status.err{ display:block; background:#7f1d1d; color:#fecaca; }
+  #status.info{ display:block; background:#1e3a8a; color:#bfdbfe; }
+  .meta { display:flex; gap:16px; flex-wrap:wrap; font-size:13px; color:#94a3b8; margin-top:8px; }
+  .meta b { color:#38bdf8; }
+  .bar { height:8px; background:#1f2a44; border-radius:99px; overflow:hidden; margin-top:12px; }
+  .bar > div { height:100%; background:linear-gradient(90deg,#38bdf8,#22d3ee); width:0%; transition:.2s; }
+  #bmBox { background:#0e1730; border:1px dashed #334155; padding:12px; border-radius:8px; margin-top:10px; }
+  a#bmLink { display:inline-block; background:#38bdf8; color:#0b1220; padding:11px 20px; border-radius:8px;
+             text-decoration:none; font-weight:800; font-size:15px; }
+</style>
+</head>
+<body>
+
+<h1>📚 DBMS Vault</h1>
+<p>Upload your notes + transcript once. Then use the bookmarklet on any page.</p>
+
+<div class="card">
+  <h2>1 · Upload Notes</h2>
+  <div id="drop">
+    <div style="font-size:34px; margin-bottom:6px;">📄</div>
+    <div>Drag &amp; drop your <strong>PDF</strong> here, or <strong>click</strong> to choose</div>
+    <div style="font-size:12px; margin-top:6px;">Parsed locally with pdf.js — nothing is uploaded.</div>
+    <input id="file" type="file" accept="application/pdf,.pdf" hidden>
+  </div>
+  <div class="bar"><div id="prog"></div></div>
+  <div id="status"></div>
+  <div class="meta">
+    <span>Notes: <b id="mNotes">0 KB</b></span>
+    <span>Transcript: <b id="mTrans">0 KB</b></span>
+    <span>Saved: <b id="mTime">—</b></span>
+  </div>
+
+  <h2 style="margin-top:20px;">Transcript (paste)</h2>
+  <textarea id="transcript" placeholder="Paste dl00fOOYLOM.txt contents here..."></textarea>
+  <div style="margin-top:8px;">
+    <button id="saveTrans">💾 Save Transcript</button>
+    <button id="useExample" class="ghost">Load example (short)</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>2 · Your Bookmarklet</h2>
+  <p>Drag this button to your bookmarks bar. Then click it on <em>any</em> webpage.</p>
+  <div id="bmBox">
+    <a id="bmLink" href="javascript:void(0)">📚 DBMS MCQ</a>
+  </div>
+  <p style="font-size:12.5px; color:#94a3b8; margin-top:10px;">
+    If drag-and-drop doesn't work: create a bookmark manually, and paste the code below as its URL.
+  </p>
+  <textarea id="bmCode" readonly style="min-height:180px;"></textarea>
+  <div style="margin-top:8px;">
+    <button id="copyBm" class="ghost">📋 Copy Bookmarklet Code</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>3 · Danger Zone</h2>
+  <button id="clear" class="danger">🗑 Clear everything</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const DB_NAME = 'dbms_vault';
+const DB_VER  = 1;
+const STORE   = 'kv';
+const K_NOTES = 'notes';
+const K_TRANS = 'transcript';
+const K_TIME  = 'savedAt';
+
+/* ---------- IndexedDB ---------- */
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, DB_VER);
+    r.onupgradeneeded = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror   = () => rej(r.error);
+  });
+}
+async function idbPut(key, val) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(val, key);
+    tx.oncomplete = res;
+    tx.onerror   = () => rej(tx.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const g = tx.objectStore(STORE).get(key);
+    g.onsuccess = () => res(g.result);
+    g.onerror   = () => rej(g.error);
+  });
+}
+async function idbClear() {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = res;
+    tx.onerror   = () => rej(tx.error);
+  });
+}
+
+/* ---------- UI helpers ---------- */
+const $ = id => document.getElementById(id);
+function setStatus(msg, kind='info') { const s=$('status'); s.textContent=msg; s.className=kind; }
+function kb(n){ return (n/1024).toFixed(1)+' KB'; }
+async function refreshMeta() {
+  const n = (await idbGet(K_NOTES)) || '';
+  const t = (await idbGet(K_TRANS)) || '';
+  const s = (await idbGet(K_TIME))  || null;
+  $('mNotes').textContent = kb(n.length);
+  $('mTrans').textContent = kb(t.length);
+  $('mTime').textContent  = s ? new Date(s).toLocaleString() : '—';
+}
+
+/* ---------- PDF parsing ---------- */
+async function parsePdf(file, onProgress) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const total = pdf.numPages;
+  let out = '';
+  for (let i = 1; i <= total; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    const items = tc.items.map(it => ({
+      str: it.str,
+      y: it.transform[5],
+      x: it.transform[4]
+    })).sort((a,b) => b.y - a.y || a.x - b.x);
+    let line = '';
+    let lastY = null;
+    for (const it of items) {
+      if (lastY !== null && Math.abs(it.y - lastY) > 2) {
+        out += line + '\n';
+        line = '';
+      }
+      line += it.str;
+      lastY = it.y;
+    }
+    if (line) out += line + '\n';
+    out += '\n';
+    onProgress && onProgress(i, total);
+  }
+  return out.replace(/\u0000/g,'');
+}
+
+/* ---------- Upload UI ---------- */
+const drop = $('drop');
+const fileInput = $('file');
+drop.addEventListener('click', () => fileInput.click());
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add('hover');
+}));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove('hover');
+}));
+drop.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+fileInput.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) handleFile(f);
+});
+
+async function handleFile(file) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    setStatus('Please choose a .pdf file.', 'err'); return;
+  }
+  try {
+    setStatus('Parsing PDF…', 'info');
+    const text = await parsePdf(file, (i, t) => {
+      const pct = Math.round(i / t * 100);
+      $('prog').style.width = pct + '%';
+      setStatus(`Parsing page ${i} / ${t}  (${pct}%)`, 'info');
+    });
+    await idbPut(K_NOTES, text);
+    await idbPut(K_TIME, Date.now());
+    $('prog').style.width = '100%';
+    setStatus(`✅ Stored "${file.name}" — ${kb(text.length)} extracted.`, 'ok');
+    await refreshMeta();
+    setTimeout(() => $('prog').style.width = '0%', 800);
+  } catch (err) {
+    console.error(err);
+    setStatus('PDF parse failed: ' + err.message, 'err');
+  }
+}
+
+/* ---------- Transcript ---------- */
+$('saveTrans').onclick = async () => {
+  const t = $('transcript').value;
+  await idbPut(K_TRANS, t);
+  await idbPut(K_TIME, Date.now());
+  setStatus(`✅ Transcript saved (${kb(t.length)}).`, 'ok');
+  await refreshMeta();
+};
+$('useExample').onclick = async () => {
+  $('transcript').value = 'DBMS stands for Database Management System. ACID stands for Atomicity, Consistency, Isolation, Durability. Normalization reduces redundancy. Indexing speeds up reads. Partitioning splits data. Sharding horizontally partitions data across nodes. CAP theorem: Consistency, Availability, Partition Tolerance — pick two. Master-slave replication: master handles writes, slaves handle reads.';
+  await $('saveTrans').onclick();
+};
+
+/* ---------- Clear ---------- */
+$('clear').onclick = async () => {
+  if (!confirm('Clear all stored notes and transcript?')) return;
+  await idbClear();
+  $('transcript').value = '';
+  setStatus('Cleared.', 'info');
+  await refreshMeta();
+};
+
+/* ---------- Build bookmarklet for THIS origin ---------- */
+function buildBookmarklet() {
+  const origin = location.origin;
+  return `javascript:(function(){
+  var V='${origin}';
+  if(window.__dbmsPanel){window.__dbmsPanel.remove();window.__dbmsPanel=null;}
+  var st=document.createElement('div');
+  st.style.cssText='position:fixed;top:20px;right:20px;z-index:2147483647;background:#0b1220;color:#38bdf8;padding:10px 16px;border-radius:10px;font-family:system-ui,sans-serif;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.5);border:1px solid #1f2a44;';
+  st.textContent='\\u{1F4DA} Loading DBMS Vault...';
+  document.body.appendChild(st);
+
+  var w=window.open(V,'_blank','width=1,height=1,left=-1000,top=-1000');
+  if(!w){ st.textContent='Popup blocked. Allow popups for this site.'; setTimeout(function(){st.remove();},3000); return; }
+
+  var received=false;
+  function got(e){
+    if(e.origin!==V) return;
+    var d=e.data||{};
+    if(d.type!=='DBMS_NOTES') return;
+    received=true;
+    window.removeEventListener('message',got);
+    try{w.close();}catch(_){}
+    if(st.parentNode) st.remove();
+    if(!d.notes){ alert('Vault is empty. Open the vault page and upload a PDF first.'); return; }
+    initPanel(d.notes,d.transcript||'');
+  }
+  window.addEventListener('message',got);
+
+  var tries=0;
+  var iv=setInterval(function(){
+    if(received){clearInterval(iv);return;}
+    if(tries++>40){clearInterval(iv);try{w.close();}catch(_){}
+      if(st.parentNode) st.remove();
+      alert('Could not reach vault. Is it open at '+V+' ?');return;}
+    try{w.postMessage({type:'GET_NOTES'},'*');}catch(_){}
+  },150);
+
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
+
+  function extractSubtopics(text){
+    var lines=text.split(/\\r?\\n/);
+    var subs=[],cur=null;
+    var numRe=/^\\s*(\\d+)\\.\\s+(.{2,120})$/;
+    var pgRe=/^=+\\s*Page\\s+\\d+\\s*=+/i;
+    for(var i=0;i<lines.length;i++){
+      var L=lines[i];
+      if(pgRe.test(L))continue;
+      var m=L.match(numRe);
+      if(m){
+        var title=m[2].replace(/[:\\-\\s]+$/,'').trim();
+        if(title.length<3)continue;
+        if(cur)subs.push(cur);
+        cur={title:title,body:''};
+      } else if(cur){ cur.body+=L+'\\n'; }
+    }
+    if(cur)subs.push(cur);
+    var seen={},out=[];
+    subs.forEach(function(s){
+      var k=s.title.toLowerCase();
+      if(!seen[k]&&s.body.trim().length>20){seen[k]=1;out.push(s);}
+    });
+    return out.slice(0,80);
+  }
+
+  function loadPuter(cb){
+    if(window.puter && window.puter.ai){ cb(); return; }
+    var s=document.createElement('script');
+    s.src='https://js.puter.com/v2/';
+    s.onload=function(){ cb(); };
+    s.onerror=function(){ alert('Failed to load Puter.js. Check your internet connection.'); };
+    document.head.appendChild(s);
+  }
+
+  function initPanel(notes,transcript){
+    var p=document.createElement('div');
+    p.id='__dbms_panel__';
+    p.style.cssText='position:fixed;top:20px;right:20px;width:440px;max-height:88vh;overflow:auto;background:#0b1220;color:#e2e8f0;z-index:2147483647;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.65);font-family:system-ui,sans-serif;padding:18px;border:1px solid #1f2a44;';
+    p.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b style="color:#38bdf8;font-size:17px;">\\u{1F4DA} DBMS MCQ \\u00B7 Puter AI</b><span id="__x" style="cursor:pointer;font-size:22px;color:#94a3b8;">&times;</span></div><div id="__body"></div>';
+    document.body.appendChild(p);
+    window.__dbmsPanel=p;
+    p.querySelector('#__x').onclick=function(){p.remove();window.__dbmsPanel=null;};
+
+    var body=p.querySelector('#__body');
+    var subs=extractSubtopics(notes);
+    if(!subs.length){ body.innerHTML='<div style="color:#f87171;">No subtopics detected in notes.</div>'; return; }
+
+    var h='<div style="color:#94a3b8;font-size:13px;margin-bottom:8px;">Choose a subtopic \\u2014 AI will generate 10 MCQs:</div>';
+    h+='<select id="__sel" style="width:100%;padding:10px;background:#0e1730;color:#e2e8f0;border:1px solid #1f2a44;border-radius:8px;font-size:14px;">';
+    subs.forEach(function(s,i){h+='<option value="'+i+'">'+esc(s.title)+'</option>';});
+    h+='</select>';
+    h+='<button id="__gen" style="margin-top:12px;width:100%;background:#38bdf8;color:#0b1220;border:0;padding:12px;border-radius:8px;font-weight:800;cursor:pointer;font-size:15px;">Generate 10 MCQs with AI</button>';
+    h+='<div id="__quiz" style="margin-top:14px;"></div>';
+    body.innerHTML=h;
+
+    body.querySelector('#__gen').onclick=function(){
+      var idx=parseInt(body.querySelector('#__sel').value,10);
+      generate(sub[idx<subs.length?idx:0],transcript);
+    };
+    // fix closure variable typo
+    function generate(sub,transcript){ askPuter(sub,transcript); }
+  }
+
+  function askPuter(sub,transcript){
+    var qb=document.getElementById('__quiz');
+    qb.innerHTML='<div style="color:#38bdf8;">\\u23F3 Loading Puter AI (first time may prompt sign-in)...</div>';
+    loadPuter(async function(){
+      try{
+        var chunk=(sub.body+'\\n'+transcript).slice(0,5000);
+        var prompt='You are a DBMS exam generator.\\nUsing ONLY the notes below, generate 10 multiple-choice questions on the subtopic "'+sub.title+'".\\nRules:\\n- 4 options each (A-D), exactly one correct.\\n- Return STRICT JSON only, no markdown fences, no prose.\\n- Schema: {"questions":[{"q":"...","opts":["A","B","C","D"],"ans":0}]}\\n\\nNOTES:\\n'+chunk;
+        var response=await puter.ai.chat(prompt);
+        var raw = typeof response==='string' ? response : (response && response.message && response.message.content ? response.message.content : JSON.stringify(response));
+        raw = raw.replace(/\`\`\`json\\s*/gi,'').replace(/\`\`\`/g,'').trim();
+        var parsed=JSON.parse(raw);
+        var questions=parsed.questions||[];
+        if(!questions.length) throw new Error('No questions returned');
+        render(qb,sub.title,questions);
+      }catch(err){
+        console.error('[DBMS]',err);
+        qb.innerHTML='<div style="color:#f87171;">AI error: '+esc(err.message)+'</div><div style="font-size:12px;color:#94a3b8;margin-top:6px;">If this is the first run, sign into Puter in the popup, then click again.</div>';
+      }
+    });
+  }
+
+  function render(container,title,questions){
+    var h='<div style="background:#0e1730;padding:12px;border-radius:8px;border-left:4px solid #38bdf8;margin-bottom:12px;"><b style="color:#38bdf8;">'+esc(title)+'</b><div style="font-size:12px;color:#94a3b8;margin-top:4px;">'+questions.length+' MCQs \\u00B7 Puter AI</div></div>';
+    questions.forEach(function(q,i){
+      h+='<div style="background:#0e1730;padding:12px;border-radius:8px;margin-bottom:10px;">';
+      h+='<div style="font-weight:600;margin-bottom:8px;color:#f1f5f9;">Q'+(i+1)+'. '+esc(q.q)+'</div>';
+      (q.opts||[]).forEach(function(o,j){
+        h+='<div class="__opt" data-i="'+i+'" data-j="'+j+'" style="padding:7px 11px;margin:5px 0;background:#0b1220;border-radius:6px;cursor:pointer;border:1px solid #1f2a44;"><b style="color:#38bdf8;">'+String.fromCharCode(65+j)+'.</b> '+esc(o)+'</div>';
+      });
+      h+='<div id="__ans'+i+'" style="margin-top:6px;font-size:12px;color:#6ee7b7;display:none;">\\u2714 Answer: '+String.fromCharCode(65+q.ans)+' \\u2014 '+esc(q.opts[q.ans])+'</div>';
+      h+='</div>';
+    });
+    container.innerHTML=h;
+    container.querySelectorAll('.__opt').forEach(function(el){
+      el.onclick=function(){
+        var i=+el.dataset.i, j=+el.dataset.j;
+        var correct=questions[i].ans;
+        container.querySelectorAll('.__opt[data-i="'+i+'"]').forEach(function(x){x.style.background='#0b1220';x.style.borderColor='#1f2a44';});
+        if(j===correct){ el.style.background='#064e3b'; el.style.borderColor='#10b981'; }
+        else{ el.style.background='#7f1d1d'; el.style.borderColor='#ef4444'; }
+        var a=document.getElementById('__ans'+i); if(a)a.style.display='block';
+      };
+    });
+  }
+})();`;
+}
+
+function refreshBookmarklet() {
+  const src = buildBookmarklet();
+  $('bmLink').href = src;
+  $('bmCode').value = src;
+}
+
+/* ---------- Vault-side message handler ---------- */
+window.addEventListener('message', async (e) => {
+  const d = e.data || {};
+  if (d.type !== 'GET_NOTES') return;
+  const notes = (await idbGet(K_NOTES)) || '';
+  const trans = (await idbGet(K_TRANS)) || '';
+  try { e.source.postMessage({ type:'DBMS_NOTES', notes:notes, transcript:trans }, '*'); } catch(_) {}
+});
+
+/* ---------- Copy bookmarklet ---------- */
+$('copyBm').onclick = async () => {
+  try { await navigator.clipboard.writeText($('bmCode').value); setStatus('✅ Bookmarklet copied.', 'ok'); }
+  catch { $('bmCode').select(); document.execCommand('copy'); setStatus('Copied.', 'ok'); }
+};
+
+/* Boot */
+refreshBookmarklet();
+refreshMeta();
+</script>
+</body>
+</html>
