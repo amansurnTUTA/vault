@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Schema Checker Pro — Full Comparison Report</title>
+<title>Schema Checker Pro — ZIP & Excel Support</title>
 <style>
   :root {
     --bg: #0f172a;
@@ -13,7 +13,6 @@
     --text: #e2e8f0;
     --muted: #94a3b8;
     --primary: #38bdf8;
-    --primary-dark: #0284c7;
     --ok: #22c55e;
     --ok-bg: #14532d;
     --missing: #ef4444;
@@ -75,16 +74,17 @@
   }
   .file-drop:hover { border-color: var(--primary); background: #1e3a5f; }
   .file-drop.has-file { border-color: var(--ok); background: #0f2e1a; border-style: solid; }
+  .file-drop.dragover { border-color: var(--primary); background: #1e3a5f; transform: scale(1.01); }
   .file-drop input { display: none; }
   .file-drop .label { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .file-drop .name { font-weight: 600; margin-top: 6px; word-break: break-all; }
   .file-drop .meta { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+  .file-drop .hint { font-size: 0.72rem; color: var(--muted); margin-top: 6px; opacity: 0.75; }
 
   .options {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 10px;
-    margin-top: 4px;
   }
   .opt {
     display: flex;
@@ -131,7 +131,6 @@
 
   .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 
-  /* Results */
   #results { display: none; }
 
   .stat-grid {
@@ -173,7 +172,7 @@
     cursor: pointer;
     user-select: none;
   }
-  .table-report .header h3 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 10px; }
+  .table-report .header h3 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .table-report .body { padding: 18px; display: none; }
   .table-report.open .body { display: block; }
 
@@ -218,7 +217,7 @@
 
   .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; font-size: 0.88rem; margin-bottom: 14px; }
   .kv .k { color: var(--muted); }
-  .kv .v { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  .kv .v { font-family: "SF Mono", Menlo, Consolas, monospace; word-break: break-all; }
 
   .order-warn {
     background: var(--redundant-bg);
@@ -304,34 +303,54 @@
     transform: translateY(10px);
     transition: all 0.25s;
     pointer-events: none;
+    z-index: 999;
   }
   .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { border-left-color: var(--missing); }
 
   .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); margin-top: 10px; }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+  .file-list {
+    max-height: 180px;
+    overflow-y: auto;
+    margin-top: 10px;
+    font-size: 0.8rem;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--muted);
+  }
+  .file-list div { padding: 2px 0; }
+  .file-list div::before { content: "📄 "; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Schema Checker Pro</h1>
-  <p class="sub">Full-schema comparison with flexible matching, complete visibility, and exportable reports.</p>
+  <p class="sub">Accepts <strong>ZIP archives</strong>, <strong>Excel workbooks</strong> (.xlsx/.xls), and <strong>CSV</strong> files. Each file in a ZIP and each sheet in an Excel becomes a separate table.</p>
 
   <!-- Upload -->
   <div class="card">
     <h2>📁 1. Upload Files</h2>
     <div class="grid-2">
       <label class="file-drop" id="dropPrimary">
-        <input type="file" id="primaryFile" accept=".xlsx,.xls,.csv">
-        <div class="label">Primary File (source of truth)</div>
-        <div class="name" id="primaryName">Click to choose…</div>
+        <input type="file" id="primaryFile" accept=".zip,.xlsx,.xls,.csv">
+        <div class="label">Primary (source of truth)</div>
+        <div class="name" id="primaryName">Click or drop file here…</div>
         <div class="meta" id="primaryMeta"></div>
+        <div class="hint">ZIP · XLSX · XLS · CSV</div>
+        <div class="file-list" id="primaryList" style="display:none"></div>
       </label>
       <label class="file-drop" id="dropSecondary">
-        <input type="file" id="secondaryFile" accept=".xlsx,.xls,.csv">
-        <div class="label">Secondary File (to validate)</div>
-        <div class="name" id="secondaryName">Click to choose…</div>
+        <input type="file" id="secondaryFile" accept=".zip,.xlsx,.xls,.csv">
+        <div class="label">Secondary (to validate)</div>
+        <div class="name" id="secondaryName">Click or drop file here…</div>
         <div class="meta" id="secondaryMeta"></div>
+        <div class="hint">ZIP · XLSX · XLS · CSV</div>
+        <div class="file-list" id="secondaryList" style="display:none"></div>
       </label>
     </div>
   </div>
@@ -342,12 +361,12 @@
     <div class="options">
       <label class="opt"><input type="checkbox" id="optCaseInsensitive" checked> Case-insensitive column matching</label>
       <label class="opt"><input type="checkbox" id="optNormalizeSpaces" checked> Ignore spaces / underscores / hyphens</label>
-      <label class="opt"><input type="checkbox" id="optFuzzySheets" checked> Fuzzy sheet-name matching</label>
+      <label class="opt"><input type="checkbox" id="optFuzzySheets" checked> Fuzzy table-name matching</label>
       <label class="opt"><input type="checkbox" id="optCheckOrder"> Check column order too</label>
       <label class="opt"><input type="checkbox" id="optInferTypes" checked> Infer column data types</label>
       <label class="opt"><input type="checkbox" id="optShowMatches" checked> Show matching columns</label>
       <label class="opt"><input type="checkbox" id="optShowSample" checked> Show sample values</label>
-      <label class="opt"><input type="checkbox" id="optTreatCSVAsOne" checked> Treat CSV as single table</label>
+      <label class="opt"><input type="checkbox" id="optRecurseZip" checked> Include nested ZIPs / subfolders</label>
     </div>
     <div class="legend">
       <span><i class="dot" style="background:var(--ok)"></i> Match</span>
@@ -377,14 +396,15 @@
     </div>
 
     <div id="sheetMappingCard" class="card" style="display:none">
-      <h2>🔗 Sheet Mapping (editable)</h2>
-      <p style="color:var(--muted); font-size:0.88rem; margin-top:0">Review and change how sheets are paired. Changing a mapping re-runs the comparison instantly.</p>
+      <h2>🔗 Table Mapping (editable)</h2>
+      <p style="color:var(--muted); font-size:0.88rem; margin-top:0">Review and change how tables are paired. Changing a mapping re-runs the comparison instantly.</p>
       <div id="sheetMappingBody"></div>
     </div>
 
     <div id="tableReports"></div>
+
     <div id="extraSheetsCard" class="card" style="display:none">
-      <h2>📋 Sheets Only in Secondary</h2>
+      <h2>📋 Tables Only in Secondary</h2>
       <div id="extraSheetsBody"></div>
     </div>
 
@@ -403,15 +423,16 @@
 <!-- Libraries -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <script>
 /* =====================================================================
    State
 ===================================================================== */
 const state = {
-  primary: null,     // { fileName, type, sheets: { name: { columns:[], rows:[], rowCount } } }
+  primary: null,
   secondary: null,
-  sheetMap: {},      // primarySheetName -> secondarySheetName | null
+  sheetMap: {},
   lastReport: null,
 };
 
@@ -427,25 +448,44 @@ function fmtSize(bytes) {
 }
 
 async function handleFile(file, which) {
-  const el = which === 'primary' ? $('primaryFile') : $('secondaryFile');
+  if (!file) return;
   const nameEl = which === 'primary' ? $('primaryName') : $('secondaryName');
   const metaEl = which === 'primary' ? $('primaryMeta') : $('secondaryMeta');
   const dropEl = which === 'primary' ? $('dropPrimary') : $('dropSecondary');
+  const listEl = which === 'primary' ? $('primaryList') : $('secondaryList');
 
-  if (!file) return;
   nameEl.textContent = file.name;
   metaEl.textContent = fmtSize(file.size) + ' · parsing…';
+  listEl.style.display = 'none';
+  listEl.innerHTML = '';
 
   try {
     const parsed = await parseFile(file);
     state[which] = { fileName: file.name, ...parsed };
-    const tableCount = Object.keys(parsed.sheets).length;
-    metaEl.textContent = fmtSize(file.size) + ' · ' + tableCount + ' table(s)';
+    const tableNames = Object.keys(parsed.sheets);
+    metaEl.textContent = fmtSize(file.size) + ' · ' + tableNames.length + ' table(s)';
     dropEl.classList.add('has-file');
+
+    // Show preview of extracted tables
+    if (tableNames.length > 0 && tableNames.length <= 50) {
+      listEl.style.display = 'block';
+      listEl.innerHTML = tableNames.map(n => {
+        const s = parsed.sheets[n];
+        return `<div>${escapeHtml(n)} <span style="color:var(--info)">(${s.columns.length} cols, ${s.rowCount} rows)</span></div>`;
+      }).join('');
+    } else if (tableNames.length > 50) {
+      listEl.style.display = 'block';
+      listEl.innerHTML = `<div style="color:var(--info)">… and ${tableNames.length - 50} more</div>` +
+        tableNames.slice(0, 50).map(n => {
+          const s = parsed.sheets[n];
+          return `<div>${escapeHtml(n)} <span style="color:var(--info)">(${s.columns.length} cols, ${s.rowCount} rows)</span></div>`;
+        }).join('');
+    }
   } catch (err) {
     metaEl.textContent = '❌ ' + err.message;
     dropEl.classList.remove('has-file');
     state[which] = null;
+    toast('Error parsing ' + file.name + ': ' + err.message, true);
     console.error(err);
   }
   updateRunButton();
@@ -454,30 +494,118 @@ async function handleFile(file, which) {
 $('primaryFile').addEventListener('change', e => handleFile(e.target.files[0], 'primary'));
 $('secondaryFile').addEventListener('change', e => handleFile(e.target.files[0], 'secondary'));
 
+// Drag & drop support
+['dropPrimary', 'dropSecondary'].forEach(id => {
+  const el = $(id);
+  const which = id === 'dropPrimary' ? 'primary' : 'secondary';
+  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('dragover'); });
+  el.addEventListener('dragleave', () => el.classList.remove('dragover'));
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file, which);
+  });
+});
+
 function updateRunButton() {
   $('runBtn').disabled = !(state.primary && state.secondary);
 }
 
 /* =====================================================================
-   File parsing
+   File parsing — dispatcher
 ===================================================================== */
-function parseFile(file) {
+async function parseFile(file) {
   const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'csv') return parseCSV(file);
-  if (ext === 'xlsx' || ext === 'xls') return parseExcel(file);
-  return Promise.reject(new Error('Unsupported format: ' + ext));
+  if (ext === 'zip') return await parseZip(file);
+  if (ext === 'csv') return await parseCSV(file, file.name);
+  if (ext === 'xlsx' || ext === 'xls') return await parseExcel(file, file.name);
+  throw new Error('Unsupported format: .' + ext);
 }
 
-function parseCSV(file) {
+/* =====================================================================
+   ZIP parsing — extracts all Excel/CSV inside, each becomes a table
+===================================================================== */
+async function parseZip(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const sheets = {};
+  const errors = [];
+  const recurse = $('optRecurseZip').checked;
+
+  // Collect entries
+  const entries = [];
+  zip.forEach((relativePath, entry) => {
+    if (entry.dir) return;
+    if (relativePath.startsWith('__MACOSX/') || relativePath.includes('/.DS_Store')) return;
+    if (relativePath.split('/').some(p => p.startsWith('.'))) return;
+    entries.push({ path: relativePath, entry });
+  });
+
+  // Handle nested ZIPs if enabled
+  const queue = [...entries];
+  const processed = new Set();
+
+  while (queue.length) {
+    const item = queue.shift();
+    const { path, entry } = item;
+    if (processed.has(path)) continue;
+    processed.add(path);
+
+    const ext = path.split('.').pop().toLowerCase();
+
+    if (ext === 'zip' && recurse) {
+      // Nested ZIP — extract and enqueue
+      try {
+        const innerBuffer = await entry.async('arraybuffer');
+        const innerZip = await JSZip.loadAsync(innerBuffer);
+        innerZip.forEach((innerPath, innerEntry) => {
+          if (innerEntry.dir) return;
+          if (innerPath.startsWith('__MACOSX/')) return;
+          queue.push({ path: path + '::' + innerPath, entry: innerEntry });
+        });
+      } catch (e) { errors.push(path + ': ' + e.message); }
+      continue;
+    }
+
+    if (ext !== 'xlsx' && ext !== 'xls' && ext !== 'csv') continue;
+
+    try {
+      const blob = await entry.async('blob');
+      const fakeFile = new File([blob], path.split('/').pop(), { type: blob.type });
+      if (ext === 'csv') {
+        const parsed = await parseCSV(fakeFile, path);
+        Object.assign(sheets, parsed.sheets);
+      } else {
+        const parsed = await parseExcel(fakeFile, path);
+        Object.assign(sheets, parsed.sheets);
+      }
+    } catch (e) {
+      errors.push(path + ': ' + e.message);
+    }
+  }
+
+  if (Object.keys(sheets).length === 0) {
+    throw new Error('No Excel/CSV files found in ZIP' + (errors.length ? ' — ' + errors[0] : ''));
+  }
+  return { type: 'zip', sheets, errors };
+}
+
+/* =====================================================================
+   CSV parsing
+===================================================================== */
+function parseCSV(file, sourceName) {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
       skipEmptyLines: 'greedy',
       complete: (results) => {
         try {
           const rows = results.data;
+          // Table name = file name without extension
+          const tableName = (sourceName || file.name).replace(/\.[^.]+$/, '').split('/').pop();
           const sheets = {};
           if (!rows.length) {
-            sheets['CSV Data'] = { columns: [], rows: [], rowCount: 0 };
+            sheets[tableName] = { columns: [], rows: [], rowCount: 0 };
           } else {
             const headers = rows[0].map(h => String(h == null ? '' : h).trim()).filter(Boolean);
             const dataRows = rows.slice(1).map(r => {
@@ -485,7 +613,7 @@ function parseCSV(file) {
               headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
               return obj;
             });
-            sheets['CSV Data'] = { columns: headers, rows: dataRows, rowCount: dataRows.length };
+            sheets[tableName] = { columns: headers, rows: dataRows, rowCount: dataRows.length };
           }
           resolve({ type: 'csv', sheets });
         } catch (e) { reject(e); }
@@ -495,7 +623,11 @@ function parseCSV(file) {
   });
 }
 
-function parseExcel(file) {
+/* =====================================================================
+   Excel parsing — each sheet becomes a table. Table name = "filename :: sheetname"
+   (or just "sheetname" if single-sheet workbook)
+===================================================================== */
+function parseExcel(file, sourceName) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -503,11 +635,15 @@ function parseExcel(file) {
         const data = new Uint8Array(e.target.result);
         const wb = XLSX.read(data, { type: 'array', cellDates: true });
         const sheets = {};
+        const baseName = (sourceName || file.name).split('/').pop().replace(/\.[^.]+$/, '');
+        const isMulti = wb.SheetNames.length > 1;
+
         wb.SheetNames.forEach(sheetName => {
           const ws = wb.Sheets[sheetName];
           const json = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+          const tableName = isMulti ? baseName + ' :: ' + sheetName : sheetName;
           if (!json.length) {
-            sheets[sheetName] = { columns: [], rows: [], rowCount: 0 };
+            sheets[tableName] = { columns: [], rows: [], rowCount: 0 };
             return;
           }
           const headers = json[0].map(h => String(h == null ? '' : h).trim()).filter(Boolean);
@@ -516,7 +652,7 @@ function parseExcel(file) {
             headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ''; });
             return obj;
           });
-          sheets[sheetName] = { columns: headers, rows: dataRows, rowCount: dataRows.length };
+          sheets[tableName] = { columns: headers, rows: dataRows, rowCount: dataRows.length };
         });
         resolve({ type: 'excel', sheets });
       } catch (err) { reject(err); }
@@ -561,18 +697,15 @@ function similarity(a, b) {
 function findBestSheetMatch(primaryName, secondaryNames, opts) {
   if (!secondaryNames.length) return { match: null, score: 0 };
   const pn = normalizeKey(primaryName, opts);
-  // exact normalized
   for (const s of secondaryNames) {
     if (normalizeKey(s, opts) === pn) return { match: s, score: 1 };
   }
   if (!opts.fuzzySheets) return { match: null, score: 0 };
-  // fuzzy
   let best = null, bestScore = 0;
   for (const s of secondaryNames) {
     const score = similarity(primaryName, s);
     if (score > bestScore) { bestScore = score; best = s; }
   }
-  // Require at least 0.65 similarity to count
   return bestScore >= 0.65 ? { match: best, score: bestScore } : { match: null, score: bestScore };
 }
 
@@ -639,8 +772,8 @@ function buildReport() {
     generatedAt: new Date().toISOString(),
     options: opts,
     files: {
-      primary: { name: primary.fileName, type: primary.type, sheetCount: Object.keys(primary.sheets).length },
-      secondary: { name: secondary.fileName, type: secondary.type, sheetCount: Object.keys(secondary.sheets).length },
+      primary: { name: primary.fileName, type: primary.type, tableCount: Object.keys(primary.sheets).length },
+      secondary: { name: secondary.fileName, type: secondary.type, tableCount: Object.keys(secondary.sheets).length },
     },
     sheetMap: {},
     tables: [],
@@ -694,7 +827,6 @@ function buildReport() {
       table.missing = [...pTable.columns];
       report.totals.missingCols += table.missing.length;
     } else {
-      // Map normalized -> original for secondary
       const sMap = new Map();
       sTable.columns.forEach(c => {
         const k = normalizeKey(c, opts);
@@ -702,32 +834,26 @@ function buildReport() {
         sMap.get(k).push(c);
       });
 
-      // Duplicates within secondary
       sTable.columns.forEach(c => {
         const k = normalizeKey(c, opts);
         if (sMap.get(k).length > 1 && !table.duplicateInSecondary.includes(c)) table.duplicateInSecondary.push(c);
       });
 
-      // Match / missing
-      const consumedSecondary = new Set();
       pTable.columns.forEach(pc => {
         const k = normalizeKey(pc, opts);
         if (sMap.has(k)) {
           table.matching.push({ primary: pc, secondary: sMap.get(k)[0] });
-          consumedSecondary.add(sMap.get(k)[0]);
         } else {
           table.missing.push(pc);
         }
       });
 
-      // Redundant
       sTable.columns.forEach(sc => {
         const k = normalizeKey(sc, opts);
         const hasMatch = pTable.columns.some(pc => normalizeKey(pc, opts) === k);
         if (!hasMatch) table.redundant.push(sc);
       });
 
-      // Column order check
       if (opts.checkOrder) {
         const pOrder = pTable.columns.map(c => normalizeKey(c, opts)).filter(k => sMap.has(k));
         const sOrder = sTable.columns.map(c => normalizeKey(c, opts)).filter(k => {
@@ -736,26 +862,17 @@ function buildReport() {
         });
         if (pOrder.length && sOrder.length && pOrder.join('|') !== sOrder.join('|')) {
           table.orderMismatch = true;
-          table.orderNote = 'Matching columns appear in a different order between the two sheets.';
+          table.orderNote = 'Matching columns appear in a different order between the two tables.';
         }
       }
 
-      // Types + samples
       if (opts.inferTypes) {
-        pTable.columns.forEach(c => {
-          table.primaryTypes[c] = inferType(pTable.rows.map(r => r[c]));
-        });
-        sTable.columns.forEach(c => {
-          table.secondaryTypes[c] = inferType(sTable.rows.map(r => r[c]));
-        });
+        pTable.columns.forEach(c => { table.primaryTypes[c] = inferType(pTable.rows.map(r => r[c])); });
+        sTable.columns.forEach(c => { table.secondaryTypes[c] = inferType(sTable.rows.map(r => r[c])); });
       }
       if (opts.showSample) {
-        pTable.columns.forEach(c => {
-          table.primarySamples[c] = sampleValues(pTable.rows, c, 3);
-        });
-        sTable.columns.forEach(c => {
-          table.secondarySamples[c] = sampleValues(sTable.rows, c, 3);
-        });
+        pTable.columns.forEach(c => { table.primarySamples[c] = sampleValues(pTable.rows, c, 3); });
+        sTable.columns.forEach(c => { table.secondarySamples[c] = sampleValues(sTable.rows, c, 3); });
       }
     }
 
@@ -769,7 +886,6 @@ function buildReport() {
     report.tables.push(table);
   }
 
-  // Extra sheets in secondary
   for (const sName of Object.keys(secondary.sheets)) {
     if (!secondaryUsed.has(sName)) {
       report.extraSheets.push({
@@ -808,7 +924,7 @@ function renderStats(r) {
     { cls: 'missing',   num: t.missingCols,    lbl: 'Missing Columns' },
     { cls: 'redundant', num: t.redundantCols,  lbl: 'Redundant Columns' },
     { cls: 'duplicate', num: t.duplicateCols,  lbl: 'Duplicate Columns' },
-    { cls: 'info',      num: r.extraSheets.length, lbl: 'Extra Sheets in Secondary' },
+    { cls: 'info',      num: r.extraSheets.length, lbl: 'Extra Tables in Secondary' },
   ];
   $('statGrid').innerHTML = items.map(i =>
     `<div class="stat ${i.cls}"><div class="num">${i.num}</div><div class="lbl">${i.lbl}</div></div>`
@@ -828,7 +944,7 @@ function renderSheetMapping(report) {
         const selected = cur.to === s ? ' selected' : '';
         return `<option value="${escapeHtml(s)}"${selected}>${escapeHtml(s)}</option>`;
       })).join('');
-    const scoreTxt = cur.score > 0 ? ` (similarity ${(cur.score * 100).toFixed(0)}%)` : '';
+    const scoreTxt = cur.score > 0 ? ` (${(cur.score * 100).toFixed(0)}%)` : '';
     return `<tr>
       <td><strong>${escapeHtml(pName)}</strong></td>
       <td><select data-primary="${escapeHtml(pName)}">${options}</select></td>
@@ -838,7 +954,7 @@ function renderSheetMapping(report) {
 
   $('sheetMappingBody').innerHTML = `
     <table class="mapping-table">
-      <thead><tr><th>Primary Sheet</th><th>Maps to Secondary Sheet</th><th>Status</th></tr></thead>
+      <thead><tr><th>Primary Table</th><th>Maps to Secondary Table</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 
@@ -878,7 +994,6 @@ function renderTables(report) {
       </div>`;
 
     const body = `<div class="body">${renderTableBody(t, opts)}</div>`;
-
     html += `<div class="table-report ${idx < 3 ? 'open' : ''}" data-idx="${idx}">${header}${body}</div>`;
   });
   container.innerHTML = html;
@@ -891,16 +1006,14 @@ function renderTables(report) {
 function renderTableBody(t, opts) {
   let out = '';
 
-  // KV summary
   out += `<div class="kv">
-    <div class="k">Primary sheet</div><div class="v">${escapeHtml(t.primarySheet)}</div>
-    <div class="k">Secondary sheet</div><div class="v">${t.secondarySheet ? escapeHtml(t.secondarySheet) : '<em style="color:var(--missing)">— not found —</em>'}</div>
+    <div class="k">Primary table</div><div class="v">${escapeHtml(t.primarySheet)}</div>
+    <div class="k">Secondary table</div><div class="v">${t.secondarySheet ? escapeHtml(t.secondarySheet) : '<em style="color:var(--missing)">— not found —</em>'}</div>
     <div class="k">Match type</div><div class="v">${t.matchType}${t.matchScore ? ' (' + (t.matchScore * 100).toFixed(0) + '%)' : ''}</div>
     <div class="k">Columns (P / S)</div><div class="v">${t.primaryColCount} / ${t.secondaryColCount ?? '—'}</div>
     <div class="k">Rows (P / S)</div><div class="v">${t.primaryRowCount} / ${t.secondaryRowCount ?? '—'}</div>
   </div>`;
 
-  // Missing
   if (t.missing.length) {
     out += `<div class="col-section">
       <div class="title"><span class="badge missing">MISSING</span> In Primary, not in Secondary — ${t.missing.length}</div>
@@ -908,7 +1021,6 @@ function renderTableBody(t, opts) {
     </div>`;
   }
 
-  // Redundant
   if (t.redundant.length) {
     out += `<div class="col-section">
       <div class="title"><span class="badge redundant">REDUNDANT</span> In Secondary, not in Primary — ${t.redundant.length}</div>
@@ -916,7 +1028,6 @@ function renderTableBody(t, opts) {
     </div>`;
   }
 
-  // Duplicates
   if (t.duplicateInPrimary.length) {
     out += `<div class="col-section">
       <div class="title"><span class="badge duplicate">DUPLICATE</span> Duplicated within Primary — ${t.duplicateInPrimary.length}</div>
@@ -930,7 +1041,6 @@ function renderTableBody(t, opts) {
     </div>`;
   }
 
-  // Matching
   if (opts.showMatches && t.matching.length) {
     out += `<div class="col-section">
       <div class="title"><span class="badge ok">MATCHING</span> Present in both — ${t.matching.length}</div>
@@ -943,12 +1053,10 @@ function renderTableBody(t, opts) {
     </div>`;
   }
 
-  // Order warning
   if (opts.checkOrder && t.orderMismatch) {
     out += `<div class="order-warn">⚠️ <strong>Column order differs.</strong> ${escapeHtml(t.orderNote)}</div>`;
   }
 
-  // Sample values
   if (opts.showSample && t.secondarySheet) {
     const cols = Object.keys(t.primarySamples);
     if (cols.length) {
@@ -1016,7 +1124,7 @@ $('exportCsv').addEventListener('click', () => {
     t.duplicateInSecondary.forEach(c => rows.push([t.secondarySheet || '', 'duplicate-secondary', c, 'appears multiple times']));
     t.matching.forEach(m => rows.push([t.primarySheet, 'match', m.primary, 'matched' + (m.primary !== m.secondary ? ' to ' + m.secondary : '')]));
   });
-  state.lastReport.extraSheets.forEach(s => rows.push([s.name, 'extra-sheet', '', s.columnCount + ' columns, ' + s.rowCount + ' rows']));
+  state.lastReport.extraSheets.forEach(s => rows.push([s.name, 'extra-table', '', s.columnCount + ' columns, ' + s.rowCount + ' rows']));
   const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
   downloadBlob(csv, 'text/csv', 'schema-report.csv');
   toast('Report downloaded (CSV).');
@@ -1029,12 +1137,13 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
-function toast(msg) {
+function toast(msg, isError = false) {
   const t = $('toast');
   t.textContent = msg;
+  t.classList.toggle('error', isError);
   t.classList.add('show');
   clearTimeout(t._t);
-  t._t = setTimeout(() => t.classList.remove('show'), 2200);
+  t._t = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
 /* =====================================================================
@@ -1056,12 +1165,11 @@ $('runBtn').addEventListener('click', async () => {
     renderReport(report);
     status.textContent = '✔ Done at ' + new Date().toLocaleTimeString();
     toast('Comparison complete.');
-    // Auto scroll
     setTimeout(() => $('results').scrollIntoView({ behavior: 'smooth' }), 100);
   } catch (e) {
     console.error(e);
     status.textContent = '❌ Error: ' + e.message;
-    toast('Error running comparison.');
+    toast('Error running comparison.', true);
   } finally {
     btn.innerHTML = oldText;
     btn.disabled = false;
