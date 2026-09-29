@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Global Column Check</title>
+<title>Global Column Check — Recursive</title>
 <style>
   :root {
     --bg: #0f172a; --panel: #1e293b; --panel-2: #273449; --border: #334155;
@@ -15,7 +15,7 @@
     margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: var(--bg); color: var(--text); padding: 28px; line-height: 1.5;
   }
-  .wrap { max-width: 900px; margin: 0 auto; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
   h1 { font-size: 1.6rem; margin: 0 0 6px; color: var(--primary); }
   .sub { color: var(--muted); margin-bottom: 22px; font-size: 0.92rem; }
 
@@ -23,6 +23,7 @@
     background: var(--panel); border: 1px solid var(--border);
     border-radius: 12px; padding: 20px; margin-bottom: 16px;
   }
+  .card h2 { margin: 0 0 12px; font-size: 1rem; color: var(--primary); }
 
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
@@ -40,9 +41,7 @@
   .drop .name { font-weight: 600; margin-top: 8px; word-break: break-all; }
   .drop .meta { font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
 
-  .opts {
-    display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px;
-  }
+  .opts { display: flex; gap: 10px; flex-wrap: wrap; }
   .opt {
     display: flex; align-items: center; gap: 7px; padding: 8px 12px;
     background: var(--panel-2); border: 1px solid var(--border);
@@ -96,15 +95,32 @@
     font-family: "SF Mono", Menlo, Consolas, monospace;
     background: #7f1d1d; color: #fecaca; border: 1px solid #991b1b;
   }
-  .chip.ok {
-    background: #14532d; color: #bbf7d0; border-color: #166534;
-  }
+  .chip.ok { background: #14532d; color: #bbf7d0; border-color: #166534; }
 
   details.raw {
-    margin-top: 14px; background: var(--panel-2); border-radius: 6px; padding: 10px 14px;
+    margin-top: 12px; background: var(--panel-2); border-radius: 6px; padding: 10px 14px;
   }
-  details.raw summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
-  details.raw pre { margin: 10px 0 0; font-size: 0.78rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  details.raw summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; user-select: none; }
+  details.raw summary:hover { color: var(--primary); }
+  details.raw pre { margin: 10px 0 0; font-size: 0.78rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+
+  .extract-log {
+    max-height: 400px; overflow-y: auto; margin-top: 10px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.78rem; background: #0b1220; border-radius: 6px;
+    padding: 12px 14px; border: 1px solid var(--border);
+  }
+  .log-line { padding: 3px 0; border-bottom: 1px dashed #1e293b; display: flex; gap: 10px; }
+  .log-line:last-child { border-bottom: none; }
+  .log-icon { flex-shrink: 0; width: 18px; }
+  .log-body { flex: 1; word-break: break-word; }
+  .log-zip { color: #fbbf24; }
+  .log-skip { color: #64748b; }
+  .log-file { color: #38bdf8; }
+  .log-sheet { color: #a855f7; padding-left: 16px; }
+  .log-col { color: #94a3b8; padding-left: 32px; font-size: 0.74rem; }
+  .log-ok { color: #22c55e; }
+  .log-err { color: #ef4444; }
 
   .spinner {
     display: inline-block; width: 14px; height: 14px;
@@ -124,12 +140,18 @@
   }
   .toast.show { opacity: 1; transform: translateY(0); }
   .toast.error { border-left-color: var(--missing); }
+
+  .badge-info {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    background: #1e3a8a; color: #bfdbfe; letter-spacing: 0.04em;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Global Column Check</h1>
-  <p class="sub">Does every column anywhere in the Primary file exist anywhere in the Secondary file? That's it. No sheets, no tables.</p>
+  <h1>Global Column Check — Recursive</h1>
+  <p class="sub">Extracts <strong>every column</strong> from <strong>every sheet</strong> of <strong>every Excel/CSV file</strong> inside <strong>every (nested) ZIP</strong> — then checks that every primary column exists somewhere in the secondary. Case-free by default.</p>
 
   <div class="card">
     <div class="grid-2">
@@ -150,14 +172,23 @@
 
   <div class="card">
     <div class="opts">
-      <label class="opt"><input type="checkbox" id="optCase" checked> Ignore case (Name = name)</label>
-      <label class="opt"><input type="checkbox" id="optSpace" checked> Ignore spaces/underscores (First Name = first_name)</label>
+      <label class="opt"><input type="checkbox" id="optCase" checked> Ignore case</label>
+      <label class="opt"><input type="checkbox" id="optSpace" checked> Ignore spaces / underscores / hyphens</label>
+      <label class="opt"><input type="checkbox" id="optNested" checked> Recurse into nested ZIPs</label>
+      <label class="opt"><input type="checkbox" id="optVerbose" checked> Show extraction log</label>
     </div>
   </div>
 
   <div class="card">
     <button class="primary" id="runBtn" disabled>▶ Check Columns</button>
     <div id="status" style="text-align:center; margin-top:10px; color:var(--muted); font-size:0.85rem;"></div>
+  </div>
+
+  <!-- Extraction log — shows exactly what was found -->
+  <div class="card" id="logCard" style="display:none">
+    <h2>🔍 Extraction Log <span class="badge-info" id="logSummary"></span></h2>
+    <p style="color:var(--muted); font-size:0.82rem; margin-top:0">This proves every file, sheet, and column was read. Scroll to verify nothing was skipped.</p>
+    <div class="extract-log" id="logBody"></div>
   </div>
 
   <div id="results">
@@ -169,10 +200,18 @@
         <button class="ghost" id="exportBtn">⬇ Copy missing list</button>
       </div>
     </div>
+
     <div class="card">
       <details class="raw">
-        <summary>All primary columns (click to expand)</summary>
+        <summary>All primary columns (green = matched, red = missing)</summary>
         <div class="chips" id="allPrimaryChips" style="margin-top:10px"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details class="raw">
+        <summary>All secondary columns (everything found in secondary)</summary>
+        <div class="chips" id="allSecondaryChips" style="margin-top:10px"></div>
       </details>
     </div>
   </div>
@@ -188,7 +227,26 @@
 const state = { primary: null, secondary: null };
 const $ = id => document.getElementById(id);
 
-/* ---------- File handling ---------- */
+/* ============================================================
+   Extraction log helpers
+============================================================ */
+const logLines = [];
+function log(icon, cls, body) {
+  logLines.push({ icon, cls, body });
+  if ($('optVerbose').checked) renderLog();
+}
+function renderLog() {
+  const body = $('logBody');
+  if (!body) return;
+  body.innerHTML = logLines.map(l =>
+    `<div class="log-line"><span class="log-icon">${l.icon}</span><span class="log-body ${l.cls}">${esc(l.body)}</span></div>`
+  ).join('');
+  body.scrollTop = body.scrollHeight;
+}
+
+/* ============================================================
+   File handling
+============================================================ */
 function fmtSize(b) {
   if (b < 1024) return b + ' B';
   if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
@@ -202,20 +260,35 @@ async function handleFile(file, which) {
   const dropEl = which === 'primary' ? $('dropPrimary') : $('dropSecondary');
 
   nameEl.textContent = file.name;
-  metaEl.textContent = fmtSize(file.size) + ' · parsing…';
+  metaEl.textContent = fmtSize(file.size) + ' · extracting…';
+
+  // Reset log
+  logLines.length = 0;
+  if (which === 'primary') {
+    log('🟦', 'log-file', `PRIMARY: ${file.name} (${fmtSize(file.size)})`);
+  } else {
+    log('🟩', 'log-file', `SECONDARY: ${file.name} (${fmtSize(file.size)})`);
+  }
 
   try {
-    const cols = await extractAllColumns(file);
+    const cols = await extractAllColumns(file, which);
     state[which] = { fileName: file.name, columns: cols };
-    metaEl.textContent = fmtSize(file.size) + ' · ' + cols.length + ' unique column(s)';
+
+    const uniqueCount = new Set(cols.map(c => c.normalized)).size;
+    metaEl.textContent = fmtSize(file.size) + ' · ' + uniqueCount + ' unique column(s)';
     dropEl.classList.add('has-file');
+    log('✅', 'log-ok', `Done. ${cols.length} column occurrence(s) across all files/sheets, ${uniqueCount} unique.`);
   } catch (e) {
     metaEl.textContent = '❌ ' + e.message;
     dropEl.classList.remove('has-file');
     state[which] = null;
     toast('Error: ' + e.message, true);
+    log('❌', 'log-err', 'ERROR: ' + e.message);
     console.error(e);
   }
+
+  $('logCard').style.display = $('optVerbose').checked ? 'block' : 'none';
+  $('logSummary').textContent = `${logLines.length} events`;
   $('runBtn').disabled = !(state.primary && state.secondary);
 }
 
@@ -233,87 +306,189 @@ $('secondaryFile').addEventListener('change', e => handleFile(e.target.files[0],
   });
 });
 
-/* ---------- Extract ALL columns from a file (any format, any nesting) ---------- */
-async function extractAllColumns(file) {
+/* ============================================================
+   The heart: extract every column from any file, recursively
+============================================================ */
+async function extractAllColumns(file, which) {
+  const opts = getOpts();
+  const out = []; // { name, normalized, source }
   const ext = file.name.split('.').pop().toLowerCase();
-  const set = new Set();
 
   if (ext === 'zip') {
-    const zip = await JSZip.loadAsync(await file.arrayBuffer());
-    const entries = [];
-    zip.forEach((path, entry) => {
-      if (entry.dir) return;
-      if (path.startsWith('__MACOSX/') || path.includes('.DS_Store')) return;
-      const e = path.split('.').pop().toLowerCase();
-      if (['xlsx','xls','csv'].includes(e)) entries.push({ path, entry });
-    });
-    if (!entries.length) throw new Error('No Excel/CSV files inside ZIP');
-
-    for (const { path, entry } of entries) {
-      const e = path.split('.').pop().toLowerCase();
-      const blob = await entry.async('blob');
-      const f = new File([blob], path.split('/').pop());
-      const cols = e === 'csv' ? await colsFromCSV(f) : await colsFromExcel(f);
-      cols.forEach(c => set.add(c));
-    }
+    await extractFromZip(file, file.name, out, opts, 0);
   } else if (ext === 'csv') {
-    (await colsFromCSV(file)).forEach(c => set.add(c));
+    await extractFromCSV(file, file.name, out, opts);
   } else if (ext === 'xlsx' || ext === 'xls') {
-    (await colsFromExcel(file)).forEach(c => set.add(c));
+    await extractFromExcel(file, file.name, out, opts);
   } else {
-    throw new Error('Unsupported: .' + ext);
+    throw new Error('Unsupported format: .' + ext);
   }
 
-  return [...set];
+  return out;
 }
 
-function colsFromCSV(file) {
-  return new Promise((resolve, reject) => {
-    Papa.parse(file, {
-      skipEmptyLines: 'greedy',
-      complete: r => {
-        if (!r.data.length) return resolve([]);
-        const headers = r.data[0].map(h => String(h == null ? '' : h).trim()).filter(Boolean);
-        resolve(headers);
-      },
-      error: reject,
-    });
+async function extractFromZip(zipFile, pathLabel, out, opts, depth) {
+  const indent = '  '.repeat(depth);
+  log('📦', 'log-zip', `${indent}ZIP: ${pathLabel}`);
+
+  let zip;
+  try {
+    zip = await JSZip.loadAsync(await zipFile.arrayBuffer());
+  } catch (e) {
+    log('❌', 'log-err', `${indent}Failed to open ZIP: ${e.message}`);
+    throw e;
+  }
+
+  // Collect all entries first (JSZip forEach doesn't support async)
+  const entries = [];
+  zip.forEach((relativePath, entry) => {
+    if (entry.dir) return;
+    // Skip junk
+    if (relativePath.startsWith('__MACOSX/')) return;
+    if (relativePath.includes('/.DS_Store') || relativePath.endsWith('.DS_Store')) return;
+    if (relativePath.split('/').some(p => p === '.git' || p === 'node_modules')) return;
+    // Skip hidden files
+    const basename = relativePath.split('/').pop();
+    if (basename.startsWith('.')) return;
+    entries.push({ path: relativePath, entry });
   });
+
+  log('📋', 'log-skip', `${indent}Found ${entries.length} file(s) inside ZIP`);
+
+  for (const { path, entry } of entries) {
+    const e = path.split('.').pop().toLowerCase();
+
+    if (e === 'zip') {
+      if (!opts.nested) {
+        log('⏭️', 'log-skip', `${indent}  Skipped nested ZIP (recurse off): ${path}`);
+        continue;
+      }
+      try {
+        const innerBlob = await entry.async('blob');
+        const innerFile = new File([innerBlob], path.split('/').pop());
+        await extractFromZip(innerFile, path, out, opts, depth + 1);
+      } catch (err) {
+        log('❌', 'log-err', `${indent}  Failed nested ZIP ${path}: ${err.message}`);
+      }
+      continue;
+    }
+
+    if (e === 'xlsx' || e === 'xls') {
+      try {
+        const blob = await entry.async('blob');
+        const f = new File([blob], path.split('/').pop());
+        await extractFromExcel(f, path, out, opts, depth + 1);
+      } catch (err) {
+        log('❌', 'log-err', `${indent}  Failed Excel ${path}: ${err.message}`);
+      }
+      continue;
+    }
+
+    if (e === 'csv') {
+      try {
+        const blob = await entry.async('blob');
+        const f = new File([blob], path.split('/').pop());
+        await extractFromCSV(f, path, out, opts, depth + 1);
+      } catch (err) {
+        log('❌', 'log-err', `${indent}  Failed CSV ${path}: ${err.message}`);
+      }
+      continue;
+    }
+
+    // Not a supported file — skip silently but note it
+    log('·', 'log-skip', `${indent}  Skipped (unsupported): ${path}`);
+  }
 }
 
-function colsFromExcel(file) {
+async function extractFromExcel(file, pathLabel, out, opts, depth = 0) {
+  const indent = '  '.repeat(depth);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
       try {
-        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-        const cols = [];
-        wb.SheetNames.forEach(sn => {
-          const json = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '', raw: false });
-          if (json.length) {
-            json[0].forEach(h => {
-              const v = String(h == null ? '' : h).trim();
-              if (v) cols.push(v);
-            });
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+        log('📗', 'log-file', `${indent}EXCEL: ${pathLabel} (${wb.SheetNames.length} sheet(s))`);
+
+        wb.SheetNames.forEach(sheetName => {
+          const ws = wb.Sheets[sheetName];
+          const json = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+          if (!json.length) {
+            log('📄', 'log-sheet', `${indent}  Sheet "${sheetName}" — empty`);
+            return;
           }
+          const headers = json[0].map(h => String(h == null ? '' : h).trim()).filter(Boolean);
+          log('📄', 'log-sheet', `${indent}  Sheet "${sheetName}" — ${headers.length} column(s)`);
+
+          headers.forEach(h => {
+            const normalized = normalize(h, opts);
+            out.push({ name: h, normalized, source: `${pathLabel} :: ${sheetName}` });
+            log('▪️', 'log-col', `${indent}    • ${h}`);
+          });
         });
-        resolve(cols);
-      } catch (err) { reject(err); }
+        resolve();
+      } catch (err) {
+        log('❌', 'log-err', `${indent}EXCEL ERROR ${pathLabel}: ${err.message}`);
+        reject(err);
+      }
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('FileReader error'));
     reader.readAsArrayBuffer(file);
   });
 }
 
-/* ---------- Normalization ---------- */
-function norm(name, opts) {
+function extractFromCSV(file, pathLabel, out, opts, depth = 0) {
+  const indent = '  '.repeat(depth);
+  return new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      skipEmptyLines: 'greedy',
+      complete: r => {
+        try {
+          if (!r.data.length) {
+            log('📄', 'log-sheet', `${indent}CSV "${pathLabel}" — empty`);
+            return resolve();
+          }
+          const headers = r.data[0].map(h => String(h == null ? '' : h).trim()).filter(Boolean);
+          log('📘', 'log-file', `${indent}CSV: ${pathLabel} — ${headers.length} column(s)`);
+          headers.forEach(h => {
+            const normalized = normalize(h, opts);
+            out.push({ name: h, normalized, source: pathLabel });
+            log('▪️', 'log-col', `${indent}    • ${h}`);
+          });
+          resolve();
+        } catch (err) {
+          log('❌', 'log-err', `${indent}CSV ERROR ${pathLabel}: ${err.message}`);
+          reject(err);
+        }
+      },
+      error: err => {
+        log('❌', 'log-err', `${indent}CSV ERROR ${pathLabel}: ${err.message}`);
+        reject(err);
+      },
+    });
+  });
+}
+
+/* ============================================================
+   Normalization (case-free + optional space/underscore-free)
+============================================================ */
+function normalize(name, opts) {
   let s = String(name).trim();
   if (opts.case) s = s.toLowerCase();
   if (opts.space) s = s.replace(/[\s_\-]+/g, '');
   return s;
 }
 
-/* ---------- Run comparison ---------- */
+function getOpts() {
+  return {
+    case: $('optCase').checked,
+    space: $('optSpace').checked,
+    nested: $('optNested').checked,
+  };
+}
+
+/* ============================================================
+   Run comparison
+============================================================ */
 $('runBtn').addEventListener('click', () => {
   const btn = $('runBtn');
   btn.disabled = true;
@@ -321,33 +496,37 @@ $('runBtn').addEventListener('click', () => {
 
   setTimeout(() => {
     try {
-      const opts = { case: $('optCase').checked, space: $('optSpace').checked };
+      const opts = getOpts();
 
-      // Normalize secondary into a Set for O(1) lookup
-      const secondarySet = new Set(state.secondary.columns.map(c => norm(c, opts)));
+      // Build normalized set from secondary
+      const secondarySet = new Set(state.secondary.columns.map(c => c.normalized));
 
-      // Build unique primary columns (normalized) but keep original display name
-      const primaryUnique = new Map(); // normKey -> originalName
+      // Unique primary columns (by normalized form), keep first original name
+      const primaryUnique = new Map();
       state.primary.columns.forEach(c => {
-        const k = norm(c, opts);
-        if (!primaryUnique.has(k)) primaryUnique.set(k, c);
+        if (!primaryUnique.has(c.normalized)) primaryUnique.set(c.normalized, c.name);
       });
 
       const missing = [];
       const matched = [];
-      primaryUnique.forEach((origName, k) => {
-        if (secondarySet.has(k)) matched.push(origName);
+      primaryUnique.forEach((origName, normKey) => {
+        if (secondarySet.has(normKey)) matched.push(origName);
         else missing.push(origName);
       });
 
+      // Unique secondary display names
+      const secondaryUnique = new Map();
+      state.secondary.columns.forEach(c => {
+        if (!secondaryUnique.has(c.normalized)) secondaryUnique.set(c.normalized, c.name);
+      });
+
       render({
-        primaryTotal: state.primary.columns.length,
         primaryUnique: primaryUnique.size,
-        secondaryUnique: secondarySet.size,
-        matched: matched.length,
+        secondaryUnique: secondaryUnique.size,
+        matched,
         missing,
         allPrimary: [...primaryUnique.values()],
-        matchedList: matched,
+        allSecondary: [...secondaryUnique.values()],
       });
     } catch (e) {
       toast('Error: ' + e.message, true);
@@ -359,7 +538,9 @@ $('runBtn').addEventListener('click', () => {
   }, 20);
 });
 
-/* ---------- Render ---------- */
+/* ============================================================
+   Render
+============================================================ */
 function render(r) {
   $('results').style.display = 'block';
   $('status').textContent = '✔ Done at ' + new Date().toLocaleTimeString();
@@ -370,13 +551,13 @@ function render(r) {
     verdict.innerHTML = '✅ <strong>PASS</strong> — every column in the primary file exists in the secondary file.';
   } else {
     verdict.className = 'verdict fail';
-    verdict.innerHTML = `❌ <strong>FAIL</strong> — ${r.missing.length} column(s) in the primary file are <u>missing</u> from the secondary file.`;
+    verdict.innerHTML = `❌ <strong>FAIL</strong> — ${r.missing.length} column(s) in primary are <u>missing</u> from secondary.`;
   }
 
   $('statRow').innerHTML = `
     <div class="stat"><div class="num">${r.primaryUnique}</div><div class="lbl">Unique cols in primary</div></div>
     <div class="stat"><div class="num">${r.secondaryUnique}</div><div class="lbl">Unique cols in secondary</div></div>
-    <div class="stat ok"><div class="num">${r.matched}</div><div class="lbl">Matched</div></div>
+    <div class="stat ok"><div class="num">${r.matched.length}</div><div class="lbl">Matched</div></div>
     <div class="stat missing"><div class="num">${r.missing.length}</div><div class="lbl">Missing</div></div>
   `;
 
@@ -395,6 +576,10 @@ function render(r) {
     return `<span class="chip ${isMissing ? '' : 'ok'}">${esc(c)}</span>`;
   }).join('');
 
+  $('allSecondaryChips').innerHTML = r.allSecondary.map(c =>
+    `<span class="chip ok">${esc(c)}</span>`
+  ).join('');
+
   window._missing = r.missing;
 }
 
@@ -404,7 +589,9 @@ $('exportBtn').addEventListener('click', () => {
   navigator.clipboard.writeText(list.join('\n')).then(() => toast('Missing column list copied.'));
 });
 
-/* ---------- Utils ---------- */
+/* ============================================================
+   Utils
+============================================================ */
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
@@ -416,6 +603,14 @@ function toast(msg, isErr = false) {
   clearTimeout(t._t);
   t._t = setTimeout(() => t.classList.remove('show'), 2400);
 }
+
+// Re-render log when verbose toggled
+$('optVerbose').addEventListener('change', e => {
+  if (logLines.length) {
+    $('logCard').style.display = e.target.checked ? 'block' : 'none';
+    if (e.target.checked) renderLog();
+  }
+});
 </script>
 </body>
 </html>
